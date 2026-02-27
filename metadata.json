@@ -1,0 +1,5 @@
+{
+  "name": "Mort Royal Bot Dashboard",
+  "description": "A web interface to manage and run multiple Mort Royal game bots with different strategies.",
+  "requestFramePermissions": []
+}
