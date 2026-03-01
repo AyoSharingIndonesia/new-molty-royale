@@ -234,7 +234,20 @@ async function safeApi(path: string, apiKey: string, method = 'GET', body = null
 
 async function findMe(apiKey: string, botName: string, hintGameId?: string) {
     try {
-        // Priority 1: Check the hint game ID first if provided
+        // Priority 1: Use the official /accounts/me endpoint (New in v1.0.0)
+        // This is the most efficient way to find active games for an account
+        const meRes = await safeApi('/accounts/me', apiKey);
+        if (meRes.success && meRes.data?.currentGames) {
+            const activeGame = meRes.data.currentGames.find((g: any) => 
+                g.gameStatus !== 'finished' && 
+                (hintGameId ? g.gameId === hintGameId : true)
+            );
+            if (activeGame && activeGame.isAlive) {
+                return { gameId: activeGame.gameId, agentId: activeGame.agentId };
+            }
+        }
+
+        // Priority 2: Check the hint game ID specifically if provided (Fallback)
         if (hintGameId) {
             const state = await safeApi(`/games/${hintGameId}/state`, apiKey);
             if (state.success && state.data?.agents) {
@@ -243,12 +256,11 @@ async function findMe(apiKey: string, botName: string, hintGameId?: string) {
             }
         }
 
-        // Priority 2: Scan active and waiting games
+        // Priority 3: Scan active and waiting games (Last resort)
         for (const status of ['running', 'waiting']) {
             const games = await safeApi(`/games?status=${status}`, apiKey);
             if (games.success && games.data) {
-                // Scan more games (up to 30) to be sure
-                for (const g of games.data.slice(0, 30)) {
+                for (const g of games.data.slice(0, 15)) { // Reduced scan range since we have /accounts/me
                     if (finishedGames.has(g.id) || g.id === hintGameId) continue;
                     const state = await safeApi(`/games/${g.id}/state`, apiKey);
                     if (state.success && state.data?.agents) {
@@ -320,7 +332,7 @@ async function botLoop(botId: number) {
                     console.log(`[${currentBot.name}] No rooms found. Creating new...`);
                     const newGame = await safeApi('/games', currentBot.apiKey, 'POST', { 
                         hostName: `${currentBot.name}'s Arena`,
-                        mapSize: 'medium',
+                        mapSize: 'massive',
                         entryType: 'free'
                     });
                     if (newGame.success) target = newGame.data;
