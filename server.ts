@@ -37,6 +37,7 @@ try {
     try { db.exec("ALTER TABLE bots ADD COLUMN totalGames INTEGER DEFAULT 0"); } catch(e) {}
     try { db.exec("ALTER TABLE bots ADD COLUMN walletAddress TEXT"); } catch(e) {}
     try { db.exec("ALTER TABLE bots ADD COLUMN privateKey TEXT"); } catch(e) {}
+    try { db.exec("ALTER TABLE bots ADD COLUMN agentId TEXT"); } catch(e) {}
 } catch (err) {
     console.error("Failed to initialize SQLite database, using in-memory fallback:", err);
     // Mock DB for fallback
@@ -291,15 +292,32 @@ async function botLoop(botId: number) {
             const currentBot = db.prepare("SELECT * FROM bots WHERE id = ?").get(botId) as any;
             if (!currentBot || currentBot.status !== 'running') break;
 
+            // 0. Auto-Wallet Sync (v1.0.0 Requirement)
+            if (!currentBot.walletAddress) {
+                console.log(`[${currentBot.name}] Missing wallet. Generating and syncing...`);
+                const wallet = Wallet.createRandom();
+                const wallet_address = wallet.address;
+                const privateKey = wallet.privateKey;
+                
+                const syncRes = await safeApi('/accounts/wallet', currentBot.apiKey, 'PUT', { wallet_address });
+                if (syncRes.success) {
+                    db.prepare("UPDATE bots SET walletAddress = ?, privateKey = ? WHERE id = ?").run(wallet_address, privateKey, botId);
+                    console.log(`[${currentBot.name}] Wallet synced: ${wallet_address}`);
+                }
+            }
+
             let gameId = currentBot.gameId;
-            let agentId = null;
+            let agentId = currentBot.agentId;
 
             // 1. Check if we are already in an active game (using gameId as hint)
-            const existing = await findMe(currentBot.apiKey, currentBot.name, currentBot.gameId);
-            if (existing) {
-                gameId = existing.gameId;
-                agentId = existing.agentId;
-                console.log(`[${currentBot.name}] Found active session in game ${gameId}`);
+            if (!agentId || !gameId) {
+                const existing = await findMe(currentBot.apiKey, currentBot.name, currentBot.gameId);
+                if (existing) {
+                    gameId = existing.gameId;
+                    agentId = existing.agentId;
+                    console.log(`[${currentBot.name}] Found active session in game ${gameId}`);
+                    db.prepare("UPDATE bots SET gameId = ?, agentId = ? WHERE id = ?").run(gameId, agentId, botId);
+                }
             }
 
             // 2. If not in a game, try to join or create one
@@ -348,6 +366,13 @@ async function botLoop(botId: number) {
                         const err = reg.error || {};
                         console.log(`[${currentBot.name}] Reg failed: ${err.code} - ${err.message}`);
                         
+                        if (err.code === 'TOO_MANY_AGENTS_PER_IP') {
+                            console.log(`[${currentBot.name}] IP Limit reached for this game. Waiting for next...`);
+                            db.prepare("UPDATE bots SET lastAction = ? WHERE id = ?").run("IP Limit Reached (Waiting...)", botId);
+                            await new Promise(r => setTimeout(r, 60000));
+                            continue;
+                        }
+
                         if (err.code === 'ACCOUNT_ALREADY_IN_GAME' || err.code === 'ONE_AGENT_PER_API_KEY') {
                             // Try to extract game ID from error message if present
                             const gameIdMatch = err.message?.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
@@ -364,12 +389,12 @@ async function botLoop(botId: number) {
             }
 
             if (!agentId) {
-                db.prepare("UPDATE bots SET lastAction = ?, gameId = ? WHERE id = ?").run("Waiting for room availability...", null, botId);
+                db.prepare("UPDATE bots SET lastAction = ?, gameId = ?, agentId = ? WHERE id = ?").run("Waiting for room availability...", null, null, botId);
                 await new Promise(r => setTimeout(r, 15000));
                 continue;
             }
 
-            db.prepare("UPDATE bots SET gameId = ? WHERE id = ?").run(gameId, botId);
+            db.prepare("UPDATE bots SET gameId = ?, agentId = ? WHERE id = ?").run(gameId, agentId, botId);
 
             // 3. Main Game Loop
             while (activeBots.get(botId)) {
@@ -418,9 +443,21 @@ async function botLoop(botId: number) {
                 const strategyFn = (Strategies as any)[currentBot.role] || Strategies.AGENT;
                 const act = state.currentRegion.isDeathZone ? { type: 'move', regionId: state.currentRegion.connections[0] } : strategyFn(state);
                 
+                const thoughts = [
+                    `Role ${currentBot.role}: Analyzing terrain for tactical advantage.`,
+                    `Role ${currentBot.role}: Scanning for potential threats and loot.`,
+                    `Role ${currentBot.role}: Prioritizing survival and resource management.`,
+                    `Role ${currentBot.role}: Calculating optimal path to safe zone.`,
+                    `Role ${currentBot.role}: Evaluating combat readiness and equipment.`
+                ];
+                const randomThought = thoughts[Math.floor(Math.random() * thoughts.length)];
+
                 const actionRes = await safeApi(`/games/${gameId}/agents/${agentId}/action`, currentBot.apiKey, 'POST', { 
                     action: act, 
-                    thought: { reasoning: `Role: ${currentBot.role}`, plannedAction: act.type } 
+                    thought: { 
+                        reasoning: randomThought, 
+                        plannedAction: `Executing ${act.type} to maintain survival.` 
+                    } 
                 });
 
                 if (actionRes.success) {
