@@ -404,7 +404,8 @@ async function botLoop(botId: number) {
                     // Check if game actually exists or we were kicked
                     const gameCheck = await safeApi(`/games/${gameId}`, currentBot.apiKey);
                     if (!gameCheck.success || gameCheck.data.status === 'finished') {
-                        console.log(`[${currentBot.name}] Game ${gameId} ended or not found.`);
+                        console.log(`[${currentBot.name}] Game ${gameId} ended or not found. Clearing state.`);
+                        db.prepare("UPDATE bots SET gameId = NULL, agentId = NULL, lastAction = 'Game Ended' WHERE id = ?").run(botId);
                         break;
                     }
                     await new Promise(r => setTimeout(r, 10000));
@@ -414,9 +415,9 @@ async function botLoop(botId: number) {
                 const state = stateRes.data;
                 
                 if (state.gameStatus === 'finished' || !state.self.isAlive) {
-                    console.log(`[${currentBot.name}] Game finished or agent died.`);
+                    console.log(`[${currentBot.name}] Game finished or agent died. Re-registering soon...`);
                     finishedGames.add(gameId);
-                    db.prepare("UPDATE bots SET isAlive = 0, lastAction = 'Game Over / Eliminated' WHERE id = ?").run(botId);
+                    db.prepare("UPDATE bots SET isAlive = 0, gameId = NULL, agentId = NULL, lastAction = 'Game Over / Eliminated' WHERE id = ?").run(botId);
                     break;
                 }
 
