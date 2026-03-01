@@ -311,12 +311,16 @@ async function botLoop(botId: number) {
 
             // 1. Check if we are already in an active game (using gameId as hint)
             if (!agentId || !gameId) {
-                const existing = await findMe(currentBot.apiKey, currentBot.name, currentBot.gameId);
+                const existing = await findMe(currentBot.apiKey, currentBot.name, (currentBot.gameId && currentBot.gameId !== 'null') ? currentBot.gameId : undefined);
                 if (existing) {
                     gameId = existing.gameId;
                     agentId = existing.agentId;
                     console.log(`[${currentBot.name}] Found active session in game ${gameId}`);
                     db.prepare("UPDATE bots SET gameId = ?, agentId = ? WHERE id = ?").run(gameId, agentId, botId);
+                } else {
+                    // Reset local variables if no active session found
+                    gameId = null;
+                    agentId = null;
                 }
             }
 
@@ -388,7 +392,7 @@ async function botLoop(botId: number) {
                 }
             }
 
-            if (!agentId) {
+            if (!agentId || !gameId) {
                 db.prepare("UPDATE bots SET lastAction = ?, gameId = ?, agentId = ? WHERE id = ?").run("Waiting for room availability...", null, null, botId);
                 await new Promise(r => setTimeout(r, 15000));
                 continue;
