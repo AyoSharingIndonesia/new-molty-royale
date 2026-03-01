@@ -236,7 +236,7 @@ export default function App() {
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(bots, null, 2));
     const downloadAnchorNode = document.createElement('a');
     downloadAnchorNode.setAttribute("href", dataStr);
-    downloadAnchorNode.setAttribute("download", "molty_royale_bots_export.json");
+    downloadAnchorNode.setAttribute("download", "mort_royal_bots_export.json");
     document.body.appendChild(downloadAnchorNode);
     downloadAnchorNode.click();
     downloadAnchorNode.remove();
@@ -328,7 +328,7 @@ export default function App() {
               <Activity className="text-black w-6 h-6" />
             </div>
             <div>
-              <h1 className="text-xl font-bold tracking-tight">Molty Royale</h1>
+              <h1 className="text-xl font-bold tracking-tight">MOLTY ROYALE</h1>
               <p className="text-xs text-zinc-500 font-mono uppercase tracking-widest">Bot Control Center</p>
             </div>
           </div>
@@ -496,7 +496,7 @@ export default function App() {
                         value={newApiKey}
                         onChange={(e) => setNewApiKey(e.target.value)}
                         className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 focus:outline-none focus:border-emerald-500 transition-colors"
-                        placeholder="Your Molty Royale API Key"
+                        placeholder="Your MOLTY ROYALE API Key"
                         required
                       />
                     </div>
@@ -781,7 +781,7 @@ export default function App() {
             </div>
           </div>
           <div className="text-[10px] text-zinc-700 font-mono">
-            MOLTY ROYALE BOT v2.0.4 // DESIGNED FOR DOMINATION
+            MOLTY ROYALE BOT v2.1.0 // DESIGNED FOR DOMINATION
           </div>
           <div className="flex items-center gap-4">
             <a 
