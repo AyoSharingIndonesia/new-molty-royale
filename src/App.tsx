@@ -47,9 +47,7 @@ interface Bot {
 }
 
 const ROLES = [
-  'ULTIMATE_SURVIVOR', 'AGENT', 'HUNTER', 'FARMER', 'SURVIVOR', 'ASSASSIN', 'LOOTER',
-  'SNIPER', 'BERSERKER', 'NINJA', 'WARRIOR', 'GHOST', 'SCAVENGER',
-  'MEDIC', 'STALKER', 'PALADIN', 'RAIDER'
+  'ULTIMATE_SURVIVOR', 'HUNTER', 'SNIPER', 'ASSASSIN', 'LOOTER'
 ];
 
 export default function App() {
@@ -328,7 +326,7 @@ export default function App() {
               <Activity className="text-black w-6 h-6" />
             </div>
             <div>
-              <h1 className="text-xl font-bold tracking-tight">MOLTY ROYALE</h1>
+              <h1 className="text-xl font-bold tracking-tight">Mort Royal</h1>
               <p className="text-xs text-zinc-500 font-mono uppercase tracking-widest">Bot Control Center</p>
             </div>
           </div>
@@ -496,7 +494,7 @@ export default function App() {
                         value={newApiKey}
                         onChange={(e) => setNewApiKey(e.target.value)}
                         className="w-full bg-black border border-white/10 rounded-xl px-4 py-3 focus:outline-none focus:border-emerald-500 transition-colors"
-                        placeholder="Your MOLTY ROYALE API Key"
+                        placeholder="Your Mort Royal API Key"
                         required
                       />
                     </div>
@@ -781,7 +779,7 @@ export default function App() {
             </div>
           </div>
           <div className="text-[10px] text-zinc-700 font-mono">
-            MOLTY ROYALE BOT v2.1.0 // DESIGNED FOR DOMINATION
+            MORT ROYAL BOT v2.1.0 // DESIGNED FOR DOMINATION
           </div>
           <div className="flex items-center gap-4">
             <a 
