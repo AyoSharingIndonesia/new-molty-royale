@@ -70,147 +70,150 @@ app.get("/api/health", (req, res) => {
 const BASE_URL = 'https://cdn.moltyroyale.com/api';
 
 const ROLES = [
-    'ULTIMATE_SURVIVOR', 'AGENT', 'HUNTER', 'FARMER', 'SURVIVOR', 'ASSASSIN', 'LOOTER',
-    'SNIPER', 'BERSERKER', 'NINJA', 'WARRIOR', 'GHOST', 'SCAVENGER',
-    'MEDIC', 'STALKER', 'PALADIN', 'RAIDER'
+    'ULTIMATE_SURVIVOR', 'HUNTER', 'SNIPER', 'ASSASSIN', 'LOOTER'
 ];
 
 const Strategies = {
-    // The most optimized strategy based on game rules
+    // 1. ULTIMATE_SURVIVOR: Focus on staying alive and efficient EP usage
     ULTIMATE_SURVIVOR: (state: any) => {
-        const { self, visibleAgents, currentRegion, connectedRegions, visibleMonsters, pendingDeathzones } = state;
+        const { self, currentRegion, connectedRegions } = state;
         
-        // 1. CRITICAL: ESCAPE DEATH ZONE (Priority #1)
-        // Death zone deals 1.34 HP/sec damage!
-        const isInDanger = currentRegion.isDeathZone || pendingDeathzones?.some((d: any) => d.id === currentRegion.id);
-        if (isInDanger) {
-            const safeRegion = connectedRegions.find((r: any) => typeof r === 'object' && !r.isDeathZone && !pendingDeathzones?.some((d: any) => d.id === r.id));
-            const targetId = safeRegion ? safeRegion.id : (typeof connectedRegions[0] === 'object' ? connectedRegions[0].id : connectedRegions[0]);
-            return { type: 'move', regionId: targetId };
+        // Escape Death Zone
+        if (currentRegion.isDeathZone) {
+            const safe = connectedRegions.find((r: any) => typeof r === 'object' && !r.isDeathZone);
+            return { type: 'move', regionId: safe ? safe.id : (typeof connectedRegions[0] === 'object' ? connectedRegions[0].id : connectedRegions[0]) };
         }
 
-        // 2. SURVIVAL: HEAL (Priority #2)
+        // Heal if low
         if (self.hp < 70) {
             const med = self.inventory.find((i: any) => i.category === 'recovery');
             if (med) return { type: 'use_item', itemId: med.id };
             
-            // If low HP and near medical facility, interact
-            const medFacility = currentRegion.interactables?.find((f: any) => f.type === 'medical_facility' && !f.isUsed);
-            if (medFacility && self.ep >= 1) return { type: 'interact', interactableId: medFacility.id };
+            const facility = currentRegion.interactables?.find((f: any) => f.type === 'medical_facility' && !f.isUsed);
+            if (facility && self.ep >= 1) return { type: 'interact', interactableId: facility.id };
         }
 
-        // 3. EQUIPMENT: EQUIP BEST WEAPON
-        const bestWeapon = self.inventory.filter((i: any) => i.category === 'weapon').sort((a: any, b: any) => b.atkBonus - a.atkBonus)[0];
-        if (bestWeapon && (!self.equippedWeapon || bestWeapon.atkBonus > self.equippedWeapon.atkBonus)) {
-            return { type: 'equip', itemId: bestWeapon.id };
-        }
-
-        // 4. COMBAT: OPPORTUNISTIC KILLING (Priority #3)
-        // Only fight if we have high advantage or target is near death
-        const weakAgent = visibleAgents.filter((a: any) => a.isAlive).sort((a: any, b: any) => a.hp - b.hp)[0];
-        if (weakAgent && self.ep >= 2) {
-            const damage = self.atk + (self.equippedWeapon?.atkBonus || 0) - (weakAgent.def * 0.5);
-            if (weakAgent.hp <= damage || (self.hp > 80 && weakAgent.hp < 50)) {
-                return { type: 'attack', targetId: weakAgent.id, targetType: 'agent' };
-            }
-        }
-
-        // 5. LOOTING: RUINS & CACHES
-        if (currentRegion.terrain === 'ruins' && self.ep >= 1) {
-            return { type: 'explore' };
-        }
-        
-        const cache = currentRegion.interactables?.find((f: any) => f.type === 'supply_cache' && !f.isUsed);
-        if (cache && self.ep >= 1) return { type: 'interact', interactableId: cache.id };
-
-        // 6. POSITIONING: HILLS FOR VISION
-        if (currentRegion.terrain !== 'hills') {
-            const hill = connectedRegions.find((r: any) => typeof r === 'object' && r.terrain === 'hills' && !r.isDeathZone);
-            if (hill) return { type: 'move', regionId: hill.id };
-        }
-
-        // 7. ENERGY MANAGEMENT
+        // EP Management
         if (self.ep < 3) return { type: 'rest' };
 
-        // 8. DEFAULT: EXPLORE OR MOVE
-        if (self.ep > 7) return { type: 'explore' };
-        
-        const randomMove = connectedRegions[Math.floor(Math.random() * connectedRegions.length)];
-        const moveId = typeof randomMove === 'object' ? randomMove.id : randomMove;
-        return { type: 'move', regionId: moveId };
+        // Self defense
+        const enemy = state.visibleAgents?.find((a: any) => a.regionId === self.regionId && a.isAlive);
+        if (enemy && self.ep >= 2) return { type: 'attack', targetId: enemy.id, targetType: 'agent' };
+
+        return { type: 'explore' };
     },
 
-    // Balanced high-win strategy
-    WINNER: (state: any) => {
-        const { self, visibleAgents, currentRegion, connectedRegions, visibleMonsters, pendingDeathzones } = state;
+    // 2. HUNTER: Aggressive kill seeker (Kills determine rank)
+    HUNTER: (state: any) => {
+        const { self, currentRegion, connectedRegions, visibleAgents, visibleMonsters } = state;
         
-        // 1. ESCAPE DEATH ZONE
-        const isInDanger = currentRegion.isDeathZone || pendingDeathzones?.some((d: any) => d.id === currentRegion.id);
-        if (isInDanger) {
-            const safeRegion = connectedRegions.find((r: any) => typeof r === 'object' && !r.isDeathZone && !pendingDeathzones?.some((d: any) => d.id === r.id));
-            const targetId = safeRegion ? safeRegion.id : (typeof connectedRegions[0] === 'object' ? connectedRegions[0].id : connectedRegions[0]);
-            return { type: 'move', regionId: targetId };
+        if (currentRegion.isDeathZone) {
+            const safe = connectedRegions.find((r: any) => typeof r === 'object' && !r.isDeathZone);
+            return { type: 'move', regionId: safe ? safe.id : (typeof connectedRegions[0] === 'object' ? connectedRegions[0].id : connectedRegions[0]) };
         }
 
-        // 2. HEAL
-        if (self.hp < 60) {
+        if (self.hp < 40) {
             const med = self.inventory.find((i: any) => i.category === 'recovery');
             if (med) return { type: 'use_item', itemId: med.id };
         }
 
-        // 3. ATTACK WEAK AGENTS
-        const target = visibleAgents.filter((a: any) => a.isAlive).sort((a: any, b: any) => a.hp - b.hp)[0];
-        if (target && self.ep >= 2 && (target.hp < 40 || self.hp > 80)) {
-            return { type: 'attack', targetId: target.id, targetType: 'agent' };
-        }
+        if (self.ep < 2) return { type: 'rest' };
 
-        // 4. EXPLORE / MOVE
-        if (self.ep > 5) return { type: 'explore' };
-        const randomMove = connectedRegions[Math.floor(Math.random() * connectedRegions.length)];
-        const moveId = typeof randomMove === 'object' ? randomMove.id : randomMove;
-        return { type: 'move', regionId: moveId };
+        // Target Agents first (higher priority for ranking)
+        const agent = visibleAgents?.find((a: any) => a.regionId === self.regionId && a.isAlive);
+        if (agent) return { type: 'attack', targetId: agent.id, targetType: 'agent' };
+
+        // Target Monsters second
+        const monster = visibleMonsters?.find((m: any) => m.regionId === self.regionId);
+        if (monster) return { type: 'attack', targetId: monster.id, targetType: 'monster' };
+
+        return { type: 'explore' };
     },
 
+    // 3. SNIPER: Ranged specialist, prefers Hills
     SNIPER: (state: any) => {
-        const { self, visibleAgents, connectedRegions } = state;
-        const target = visibleAgents.find((a: any) => a.isAlive);
-        if (target && self.equippedWeapon?.range >= 1 && self.ep >= 2) {
-            return { type: 'attack', targetId: target.id, targetType: 'agent' };
+        const { self, currentRegion, connectedRegions, visibleAgents } = state;
+        
+        if (currentRegion.isDeathZone) {
+            const safe = connectedRegions.find((r: any) => typeof r === 'object' && !r.isDeathZone);
+            return { type: 'move', regionId: safe ? safe.id : (typeof connectedRegions[0] === 'object' ? connectedRegions[0].id : connectedRegions[0]) };
         }
-        const hills = connectedRegions.find((r: any) => typeof r === 'object' && r.terrain === 'hills');
-        if (hills) return { type: 'move', regionId: hills.id };
-        return Strategies.WINNER(state);
-    },
 
-    BERSERKER: (state: any) => {
-        const { self, visibleAgents, visibleMonsters } = state;
-        const target = visibleAgents.find((a: any) => a.isAlive) || visibleMonsters[0];
-        if (target && self.ep >= 2) return { type: 'attack', targetId: target.id, targetType: target.id.startsWith('agent') ? 'agent' : 'monster' };
-        return Strategies.WINNER(state);
-    },
+        if (self.ep < 2) return { type: 'rest' };
 
-    NINJA: (state: any) => {
-        const { currentRegion, connectedRegions } = state;
-        if (currentRegion.terrain !== 'forest' && currentRegion.terrain !== 'ruins') {
-            const hideout = connectedRegions.find((r: any) => typeof r === 'object' && (r.terrain === 'forest' || r.terrain === 'ruins'));
-            if (hideout) return { type: 'move', regionId: hideout.id };
+        // Check for ranged targets (Range 1-2)
+        const hasRanged = self.equippedWeapon?.range > 0;
+        if (hasRanged) {
+            const target = visibleAgents?.find((a: any) => a.isAlive && a.id !== self.id);
+            if (target) return { type: 'attack', targetId: target.id, targetType: 'agent' };
         }
-        return Strategies.WINNER(state);
+
+        // Move to Hills for vision boost
+        if (currentRegion.terrain !== 'hills') {
+            const hills = connectedRegions.find((r: any) => typeof r === 'object' && r.terrain === 'hills' && !r.isDeathZone);
+            if (hills) return { type: 'move', regionId: hills.id };
+        }
+
+        return { type: 'explore' };
     },
 
-    AGENT: (state: any) => Strategies.WINNER(state),
-    HUNTER: (state: any) => Strategies.WINNER(state),
-    FARMER: (state: any) => Strategies.WINNER(state),
-    SURVIVOR: (state: any) => Strategies.WINNER(state),
-    ASSASSIN: (state: any) => Strategies.WINNER(state),
-    LOOTER: (state: any) => Strategies.WINNER(state),
-    WARRIOR: (state: any) => Strategies.WINNER(state),
-    GHOST: (state: any) => Strategies.WINNER(state),
-    SCAVENGER: (state: any) => Strategies.WINNER(state),
-    MEDIC: (state: any) => Strategies.WINNER(state),
-    STALKER: (state: any) => Strategies.WINNER(state),
-    PALADIN: (state: any) => Strategies.WINNER(state),
-    RAIDER: (state: any) => Strategies.WINNER(state)
+    // 4. ASSASSIN: Melee specialist, prefers Forests
+    ASSASSIN: (state: any) => {
+        const { self, currentRegion, connectedRegions, visibleAgents } = state;
+        
+        if (currentRegion.isDeathZone) {
+            const safe = connectedRegions.find((r: any) => typeof r === 'object' && !r.isDeathZone);
+            return { type: 'move', regionId: safe ? safe.id : (typeof connectedRegions[0] === 'object' ? connectedRegions[0].id : connectedRegions[0]) };
+        }
+
+        if (self.ep < 2) return { type: 'rest' };
+
+        const target = visibleAgents?.find((a: any) => a.regionId === self.regionId && a.isAlive);
+        if (target) return { type: 'attack', targetId: target.id, targetType: 'agent' };
+
+        // Move to Forest for stealth
+        if (currentRegion.terrain !== 'forest') {
+            const forest = connectedRegions.find((r: any) => typeof r === 'object' && r.terrain === 'forest' && !r.isDeathZone);
+            if (forest) return { type: 'move', regionId: forest.id };
+        }
+
+        return { type: 'explore' };
+    },
+
+    // 5. LOOTER: Gear seeker, prefers Ruins and Supply Caches
+    LOOTER: (state: any) => {
+        const { self, currentRegion, connectedRegions } = state;
+        
+        if (currentRegion.isDeathZone) {
+            const safe = connectedRegions.find((r: any) => typeof r === 'object' && !r.isDeathZone);
+            return { type: 'move', regionId: safe ? safe.id : (typeof connectedRegions[0] === 'object' ? connectedRegions[0].id : connectedRegions[0]) };
+        }
+
+        // Priority: Supply Caches
+        const cache = currentRegion.interactables?.find((f: any) => f.type === 'supply_cache' && !f.isUsed);
+        if (cache && self.ep >= 1) return { type: 'interact', interactableId: cache.id };
+
+        if (self.ep < 2) return { type: 'rest' };
+
+        // Move to Ruins for better loot
+        if (currentRegion.terrain !== 'ruins') {
+            const ruins = connectedRegions.find((r: any) => typeof r === 'object' && r.terrain === 'ruins' && !r.isDeathZone);
+            if (ruins) return { type: 'move', regionId: ruins.id };
+        }
+
+        return { type: 'explore' };
+    },
+
+    AGENT: (state: any) => {
+        const { self, visibleAgents, currentRegion, connectedRegions } = state;
+        if (currentRegion.isDeathZone) return { type: 'move', regionId: connectedRegions[0].id || connectedRegions[0] };
+        if (self.ep >= 2) {
+            const target = visibleAgents.find((a: any) => a.regionId === self.regionId && a.isAlive);
+            if (target) return { type: 'attack', targetId: target.id, targetType: 'agent' };
+        }
+        if (self.ep < 2) return { type: 'rest' };
+        return { type: 'explore' };
+    }
 };
 
 const activeBots = new Map<number, boolean>();
@@ -433,18 +436,41 @@ async function botLoop(botId: number) {
                     continue;
                 }
 
-                // Auto actions (Free)
-                const item = state.visibleItems.find((i: any) => i.regionId === state.self.regionId);
-                if (item && state.self.inventory.length < 10) {
-                    await safeApi(`/games/${gameId}/agents/${agentId}/action`, currentBot.apiKey, 'POST', { action: { type: 'pickup', itemId: item.item.id } });
+                // Auto actions (Free - EP 0)
+                // 1. Pickup ALL items in current region
+                const itemsInRegion = state.visibleItems.filter((i: any) => i.regionId === state.self.regionId);
+                for (const itemEntry of itemsInRegion) {
+                    if (state.self.inventory.length < 10) {
+                        await safeApi(`/games/${gameId}/agents/${agentId}/action`, currentBot.apiKey, 'POST', { 
+                            action: { type: 'pickup', itemId: itemEntry.item.id } 
+                        });
+                        // Update local inventory count to prevent overflow in same turn
+                        state.self.inventory.push(itemEntry.item);
+                    }
                 }
 
-                const wpn = state.self.inventory.filter((i: any) => i.category === 'weapon').sort((a: any, b: any) => b.atkBonus - a.atkBonus)[0];
-                if (wpn && (!state.self.equippedWeapon || wpn.atkBonus > state.self.equippedWeapon.atkBonus)) {
-                    await safeApi(`/games/${gameId}/agents/${agentId}/action`, currentBot.apiKey, 'POST', { action: { type: 'equip', itemId: wpn.id } });
+                // 2. Equip BEST weapon
+                const weapons = state.self.inventory.filter((i: any) => i.category === 'weapon');
+                if (weapons.length > 0) {
+                    const bestWeapon = weapons.sort((a: any, b: any) => b.atkBonus - a.atkBonus)[0];
+                    if (!state.self.equippedWeapon || bestWeapon.atkBonus > state.self.equippedWeapon.atkBonus) {
+                        await safeApi(`/games/${gameId}/agents/${agentId}/action`, currentBot.apiKey, 'POST', { 
+                            action: { type: 'equip', itemId: bestWeapon.id } 
+                        });
+                    }
                 }
 
-                // Strategy Action
+                // 3. Social Interaction (Free)
+                if (state.recentMessages?.length > 0) {
+                    const lastMsg = state.recentMessages[state.recentMessages.length - 1];
+                    if (lastMsg.senderId !== agentId) {
+                        await safeApi(`/games/${gameId}/agents/${agentId}/action`, currentBot.apiKey, 'POST', { 
+                            action: { type: 'talk', message: "I'm focusing on my mission. Good luck!" } 
+                        });
+                    }
+                }
+
+                // Strategy Action (EP Consuming)
                 const strategyFn = (Strategies as any)[currentBot.role] || Strategies.AGENT;
                 const act = state.currentRegion.isDeathZone ? { type: 'move', regionId: state.currentRegion.connections[0] } : strategyFn(state);
                 
@@ -492,8 +518,10 @@ app.get("/api/bots", (req, res) => {
 });
 
 app.post("/api/bots/register", async (req, res) => {
-    const { name, role } = req.body;
+    let { name, role } = req.body;
     try {
+        // Enforce underscore naming convention
+        name = name.replace(/\s+/g, '_');
         console.log(`[System] Attempting to register account: ${name}`);
         
         // Generate real Ethereum wallet
@@ -548,7 +576,7 @@ app.post("/api/bots/bulk-register", async (req, res) => {
     const suffixes = ['Hunter', 'Blade', 'Stalker', 'Wraith', 'Reaper', 'Knight', 'Slayer', 'Wolf', 'Raven', 'Storm'];
 
     for (let i = 0; i < count; i++) {
-        const name = `${prefixes[Math.floor(Math.random() * prefixes.length)]} ${suffixes[Math.floor(Math.random() * suffixes.length)]} ${Math.floor(Math.random() * 999)}`;
+        const name = `${prefixes[Math.floor(Math.random() * prefixes.length)]}_${suffixes[Math.floor(Math.random() * suffixes.length)]}_${Math.floor(Math.random() * 999)}`;
         const role = ROLES[Math.floor(Math.random() * ROLES.length)];
         
         // Generate real Ethereum wallet
@@ -585,8 +613,10 @@ app.post("/api/bots/bulk-register", async (req, res) => {
 });
 
 app.post("/api/bots/add", (req, res) => {
-    const { name, apiKey, role, walletAddress, privateKey } = req.body;
+    let { name, apiKey, role, walletAddress, privateKey } = req.body;
     try {
+        // Enforce underscore naming convention
+        name = name.replace(/\s+/g, '_');
         const info = db.prepare("INSERT INTO bots (name, apiKey, role, walletAddress, privateKey) VALUES (?, ?, ?, ?, ?)").run(
             name, 
             apiKey, 
